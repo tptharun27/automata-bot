@@ -6,7 +6,11 @@ from pyzbar.pyzbar import decode
 from PIL import Image
 
 # --- CLOUD SERVER SETUP ---
-os.system("playwright install chromium")
+@st.cache_resource
+def install_playwright():
+    os.system("playwright install chromium")
+
+install_playwright()
 
 # ==========================================
 # --- CONFIGURATION ---
