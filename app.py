@@ -24,19 +24,20 @@ GENERATOR_LINK = st.secrets["GENERATOR_LINK"]
 def capture_and_scan_qr(browser, link_to_open, screenshot_filename, status_element):
     status_element.text(f"[GETTING NEW QR] Opening generator link...")
     
-    # Open a new tab (page) in the existing browser
     page = browser.new_page()
     page.goto(link_to_open)
+    # Wait until network activity settles
+    page.wait_for_load_state("networkidle", timeout=10000) 
     page.wait_for_timeout(3000) 
     
     page_text = page.locator("body").inner_text().lower()
     if "too many" in page_text or "scripts" in page_text:
         status_element.text("⚠️ Google Scripts Error on generator page.")
-        page.close() # Close only the tab
+        page.close()
         return None
 
     page.screenshot(path=screenshot_filename)
-    page.close() # Close only the tab
+    page.close()
 
     try:
         img = Image.open(screenshot_filename)
@@ -49,29 +50,34 @@ def capture_and_scan_qr(browser, link_to_open, screenshot_filename, status_eleme
     return None
 
 def submit_id_to_website(browser, qr_url, my_id, status_element):
-    status_element.text(f"[SUBMITTING] Submitting ID: {my_id}...")
+    status_element.text(f"[SUBMITTING] Opening page for ID: {my_id}...")
     
-    # Open a new tab (page) in the existing browser
     page = browser.new_page()
-    page.goto(qr_url)
-    page.wait_for_timeout(4000) 
-    
-    page_text = page.locator("body").inner_text().lower()
-    if "too many" in page_text or "scripts" in page_text:
-        status_element.text("⚠️ Google Scripts Error before submission.")
-        page.close()
-        return "error"
-        
     try:
+        page.goto(qr_url)
+        # Wait for the page to fully load its resources
+        page.wait_for_load_state("networkidle", timeout=15000)
+        page.wait_for_timeout(4000) 
+        
+        page_text = page.locator("body").inner_text().lower()
+        if "too many" in page_text or "scripts" in page_text:
+            status_element.text("⚠️ Google Scripts Error before submission.")
+            page.close()
+            return "error"
+            
         target_frame = page.main_frame
         for frame in page.frames:
             if frame.locator("input").count() > 0:
                 target_frame = frame
                 break
         
+        # Wait specifically for the input box to be visible
+        target_frame.locator("input").first.wait_for(state="visible", timeout=5000)
         target_frame.locator("input").first.fill(my_id)
+        
         status_element.text(f"Clicking 'Submit' for {my_id}...")
         target_frame.locator("text=Submit").first.click()
+        
         page.wait_for_timeout(4000)
         
         final_text = page.locator("body").inner_text().lower()
@@ -90,7 +96,9 @@ def submit_id_to_website(browser, qr_url, my_id, status_element):
         return "success"
         
     except Exception as e:
-        status_element.text(f"❌ Failed to find the input box. Error: {e}")
+        status_element.text(f"❌ Failed to submit ID. Taking error screenshot...")
+        # Take a picture of exactly what broke so we can see it on the web app
+        page.screenshot(path="error_debug.png")
         page.close()
         return "error"
 
@@ -103,10 +111,8 @@ st.set_page_config(page_title="Secret ID Automator", page_icon="🤖")
 st.title("🤖 Secret ID Automator")
 st.write("Paste your IDs below to start the bot.")
 
-# --- USER INPUTS ---
 raw_ids = st.text_area("Student IDs (Paste one per line)", height=150)
 
-# --- AUTOMATION TRIGGER ---
 if st.button("🚀 Start Automation"):
     
     if not raw_ids:
@@ -117,6 +123,7 @@ if st.button("🚀 Start Automation"):
         
         progress_bar = st.progress(0)
         status_text = st.empty()
+        error_container = st.empty() # Placeholder for error images
         
         current_qr_url = None
         temp_qr_screenshot = "temp_qr_page.png"
@@ -124,15 +131,17 @@ if st.button("🚀 Start Automation"):
         st.subheader("Secret Outputs")
         results_container = st.container()
         
-        # --- BROWSER LIFECYCLE MANAGEMENT ---
-        # 1. Launch the browser ONCE before the loop begins
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             
-            # 2. Run the loop, passing the active browser to the functions
             for i, student_id in enumerate(id_list):
                 success = False
-                while not success:
+                attempts = 0 # Track how many times we try this ID
+                
+                while not success and attempts < 3:
+                    attempts += 1
+                    error_container.empty() # Clear old errors
+                    
                     if not current_qr_url:
                         current_qr_url = capture_and_scan_qr(browser, GENERATOR_LINK, temp_qr_screenshot, status_text)
                         if not current_qr_url:
@@ -148,18 +157,22 @@ if st.button("🚀 Start Automation"):
                         if os.path.exists(img_path):
                             with results_container:
                                 st.image(img_path, caption=f"Output for ID: {student_id}")
+                    
                     elif result == "expired":
                         current_qr_url = None 
+                        
                     elif result == "error":
-                        status_text.text("Encountered a script error. Retrying same ID in 5 seconds...")
+                        status_text.text(f"Attempt {attempts}/3 failed. Retrying in 5 seconds...")
+                        # If the bot saved an error screenshot, show it on the phone!
+                        if os.path.exists("error_debug.png"):
+                            error_container.image("error_debug.png", caption="⚠️ What the bot saw when it crashed")
                         time.sleep(5)
+                
+                if not success:
+                    st.error(f"Failed to process ID {student_id} after 3 attempts. Skipping to next.")
                 
                 progress_bar.progress((i + 1) / len(id_list))
                 
-            # 3. The browser automatically closes here when the 'with' block finishes
-            
-        status_text.text("✅ All IDs Processed Successfully!")
-        st.success("Automation Complete!")
-        
+        status_text.text("✅ Automation Loop Finished!")
         if os.path.exists(temp_qr_screenshot):
             os.remove(temp_qr_screenshot)
