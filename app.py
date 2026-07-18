@@ -55,7 +55,7 @@ def submit_id_to_website(browser, qr_url, my_id, status_element):
     page = browser.new_page()
     try:
         page.goto(qr_url)
-        # Give the page a moment to establish its connection
+        page.wait_for_load_state("networkidle", timeout=15000)
         page.wait_for_timeout(4000) 
         
         page_text = page.locator("body").inner_text().lower()
@@ -64,21 +64,19 @@ def submit_id_to_website(browser, qr_url, my_id, status_element):
             page.close()
             return "error"
             
-        # --- THE FIX ---
-        # 1. Target the Google Apps Script iframe directly
-        my_iframe = page.frame_locator("iframe").first
+        # --- THE FIX: PIERCING THE DOUBLE IFRAME ---
+        # Target the first iframe, and then immediately target the iframe inside it
+        nested_frame = page.frame_locator("iframe").first.frame_locator("iframe").first
         
-        # 2. Wait up to 10 seconds specifically for the input box inside the iframe to become visible
-        input_box = my_iframe.locator("input").first
+        # Now look for the input box inside that second layer
+        input_box = nested_frame.locator("input").first
         input_box.wait_for(state="visible", timeout=10000)
         
-        # 3. Fill the ID
+        # Fill the ID and click Submit
         input_box.fill(my_id)
-        
-        # 4. Click the exact button text shown in your screenshot
         status_element.text(f"Clicking 'Submit Attendance' for {my_id}...")
-        my_iframe.locator("text=Submit Attendance").first.click()
-        # ---------------
+        nested_frame.locator("text=Submit Attendance").first.click()
+        # ------------------------------------------
         
         page.wait_for_timeout(4000)
         
