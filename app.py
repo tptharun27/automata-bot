@@ -54,9 +54,9 @@ def submit_id_to_website(browser, qr_url, my_id, status_element):
     
     page = browser.new_page()
     try:
+        # 1. Open the URL from the QR code
         page.goto(qr_url)
-        # Wait a solid 5 seconds to let Google's background scripts finish building the iframes
-        page.wait_for_timeout(5000) 
+        page.wait_for_timeout(3000) 
         
         page_text = page.locator("body").inner_text().lower()
         if "too many" in page_text or "scripts" in page_text:
@@ -64,31 +64,32 @@ def submit_id_to_website(browser, qr_url, my_id, status_element):
             page.close()
             return "error"
             
-        # --- THE BRUTE-FORCE IFRAME HUNTER ---
-        target_frame = None
+        # ==========================================
+        # THE NEW ARCHITECTURE: THE SANDBOX BYPASS
+        # ==========================================
+        status_element.text("Bypassing Google security sandbox...")
         
-        # Loop through every single frame (and nested frame) on the page
-        for frame in page.frames:
-            try:
-                # If this frame contains the submit button, this is our target!
-                if frame.locator("text=Submit Attendance").count() > 0:
-                    target_frame = frame
-                    break
-            except:
-                continue # Ignore cross-origin errors for unrelated frames
-                
-        if not target_frame:
-            raise Exception("Could not find the frame containing the input box.")
+        # Grab the direct URL of the inner frame
+        iframe_element = page.locator("iframe").first
+        inner_url = iframe_element.get_attribute("src")
+        
+        if not inner_url:
+            raise Exception("Could not extract the inner form URL.")
             
-        # Now that we found the exact frame, lock onto the input box
-        input_box = target_frame.locator("input").first
+        # Navigate directly to the un-sandboxed form!
+        page.goto(inner_url)
+        page.wait_for_timeout(2000) # Give it a second to render
+        
+        # Now there are NO iframes. We can type and click directly.
+        input_box = page.locator("input").first
         input_box.wait_for(state="visible", timeout=5000)
         
-        # Fill it and click!
+        status_element.text(f"Typing ID: {my_id}...")
         input_box.fill(my_id)
-        status_element.text(f"Clicking 'Submit Attendance' for {my_id}...")
-        target_frame.locator("text=Submit Attendance").first.click()
-        # ------------------------------------------
+        
+        status_element.text(f"Clicking 'Submit Attendance'...")
+        page.locator("text=Submit Attendance").first.click()
+        # ==========================================
         
         page.wait_for_timeout(4000)
         
