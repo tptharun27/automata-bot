@@ -11,7 +11,7 @@ os.system("playwright install chromium")
 # ==========================================
 # --- CONFIGURATION ---
 # ==========================================
-GENERATOR_LINK = "https://script.google.com/macros/s/AKfycbzSBcIrqH-DVZ8g0AdNxDcFpRItoHyRxHOPFKzn4pFZdr04NgWZ13NK6jcNoOmCon6IBA/exec?display=1&v=C3102"
+GENERATOR_LINK = st.secrets["GENERATOR_LINK"]
 
 # ==========================================
 # --- THE BRAIN: AUTOMATION FUNCTIONS ---
