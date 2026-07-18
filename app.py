@@ -55,8 +55,8 @@ def submit_id_to_website(browser, qr_url, my_id, status_element):
     page = browser.new_page()
     try:
         page.goto(qr_url)
-        page.wait_for_load_state("networkidle", timeout=15000)
-        page.wait_for_timeout(4000) 
+        # Wait a solid 5 seconds to let Google's background scripts finish building the iframes
+        page.wait_for_timeout(5000) 
         
         page_text = page.locator("body").inner_text().lower()
         if "too many" in page_text or "scripts" in page_text:
@@ -64,18 +64,30 @@ def submit_id_to_website(browser, qr_url, my_id, status_element):
             page.close()
             return "error"
             
-        # --- THE FIX: PIERCING THE DOUBLE IFRAME ---
-        # Target the first iframe, and then immediately target the iframe inside it
-        nested_frame = page.frame_locator("iframe").first.frame_locator("iframe").first
+        # --- THE BRUTE-FORCE IFRAME HUNTER ---
+        target_frame = None
         
-        # Now look for the input box inside that second layer
-        input_box = nested_frame.locator("input").first
-        input_box.wait_for(state="visible", timeout=10000)
+        # Loop through every single frame (and nested frame) on the page
+        for frame in page.frames:
+            try:
+                # If this frame contains the submit button, this is our target!
+                if frame.locator("text=Submit Attendance").count() > 0:
+                    target_frame = frame
+                    break
+            except:
+                continue # Ignore cross-origin errors for unrelated frames
+                
+        if not target_frame:
+            raise Exception("Could not find the frame containing the input box.")
+            
+        # Now that we found the exact frame, lock onto the input box
+        input_box = target_frame.locator("input").first
+        input_box.wait_for(state="visible", timeout=5000)
         
-        # Fill the ID and click Submit
+        # Fill it and click!
         input_box.fill(my_id)
         status_element.text(f"Clicking 'Submit Attendance' for {my_id}...")
-        nested_frame.locator("text=Submit Attendance").first.click()
+        target_frame.locator("text=Submit Attendance").first.click()
         # ------------------------------------------
         
         page.wait_for_timeout(4000)
@@ -100,7 +112,6 @@ def submit_id_to_website(browser, qr_url, my_id, status_element):
         page.screenshot(path="error_debug.png")
         page.close()
         return "error"
-
 # ==========================================
 # --- THE FACE: STREAMLIT DASHBOARD ---
 # ==========================================
