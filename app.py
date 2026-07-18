@@ -55,8 +55,7 @@ def submit_id_to_website(browser, qr_url, my_id, status_element):
     page = browser.new_page()
     try:
         page.goto(qr_url)
-        # Wait for the page to fully load its resources
-        page.wait_for_load_state("networkidle", timeout=15000)
+        # Give the page a moment to establish its connection
         page.wait_for_timeout(4000) 
         
         page_text = page.locator("body").inner_text().lower()
@@ -65,18 +64,21 @@ def submit_id_to_website(browser, qr_url, my_id, status_element):
             page.close()
             return "error"
             
-        target_frame = page.main_frame
-        for frame in page.frames:
-            if frame.locator("input").count() > 0:
-                target_frame = frame
-                break
+        # --- THE FIX ---
+        # 1. Target the Google Apps Script iframe directly
+        my_iframe = page.frame_locator("iframe").first
         
-        # Wait specifically for the input box to be visible
-        target_frame.locator("input").first.wait_for(state="visible", timeout=5000)
-        target_frame.locator("input").first.fill(my_id)
+        # 2. Wait up to 10 seconds specifically for the input box inside the iframe to become visible
+        input_box = my_iframe.locator("input").first
+        input_box.wait_for(state="visible", timeout=10000)
         
-        status_element.text(f"Clicking 'Submit' for {my_id}...")
-        target_frame.locator("text=Submit").first.click()
+        # 3. Fill the ID
+        input_box.fill(my_id)
+        
+        # 4. Click the exact button text shown in your screenshot
+        status_element.text(f"Clicking 'Submit Attendance' for {my_id}...")
+        my_iframe.locator("text=Submit Attendance").first.click()
+        # ---------------
         
         page.wait_for_timeout(4000)
         
@@ -97,7 +99,6 @@ def submit_id_to_website(browser, qr_url, my_id, status_element):
         
     except Exception as e:
         status_element.text(f"❌ Failed to submit ID. Taking error screenshot...")
-        # Take a picture of exactly what broke so we can see it on the web app
         page.screenshot(path="error_debug.png")
         page.close()
         return "error"
